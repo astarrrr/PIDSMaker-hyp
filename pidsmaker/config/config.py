@@ -531,6 +531,19 @@ ENCODERS_CFG = {
         "architecture_str": Arg(str),
     },
     "none": {},
+    "hyperbolic_transformer": {
+        "trans_num_layers": Arg(int),
+        "trans_num_heads": Arg(int),
+        "trans_dropout": Arg(float),
+        "gnn_num_layers": Arg(int),
+        "gnn_dropout": Arg(float),
+        "graph_weight": Arg(float),
+        "k": Arg(float),
+        "attention_type": Arg(str),
+        "power_k": Arg(int),
+        "use_bn": Arg(bool),
+        "use_residual": Arg(bool),
+    },
 }
 
 DECODERS_NODE_LEVEL = ["node_mlp", "none", "magic_gat", "nodlink"]
@@ -575,6 +588,7 @@ OBJECTIVES_EDGE_LEVEL = [
     "predict_edge_type",
     "reconstruct_edge_embeddings",
     "predict_edge_contrastive",
+    "hyperbolic_edge_reconstruction",
 ]
 OBJECTIVES = OBJECTIVES_NODE_LEVEL + OBJECTIVES_EDGE_LEVEL
 OBJECTIVES_CFG = {
@@ -647,6 +661,7 @@ OBJECTIVES_CFG = {
         ),
         **DECODERS_CFG,
     },
+    "hyperbolic_edge_reconstruction": {},
 }
 
 SYNTHETIC_ATTACKS = {
@@ -852,6 +867,8 @@ TASK_ARGS = {
         "patience": Arg(int),
         "lr": Arg(float),
         "weight_decay": Arg(float),
+        "hyp_lr": Arg(float),
+        "hyp_weight_decay": Arg(float),
         "node_hid_dim": Arg(int, desc="Number of neurons in the middle layers of the encoder."),
         "node_out_dim": Arg(int, desc="Number of neurons in the last layer of the encoder."),
         "grad_accumulation": Arg(int, desc="Number of epochs to gather gradients before backprop."),

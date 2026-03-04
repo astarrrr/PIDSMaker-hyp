@@ -8,6 +8,9 @@ Supports multiple encoder architectures (SAGE, GAT, GIN, GLSTM, etc.) and object
 import torch
 import torch.nn as nn
 
+# Hyperbolic Transformer integration (myproject must be on PYTHONPATH; run.sh handles this)
+from factory_ext import create_hyp_encoder, create_hyp_objective, create_dual_optimizer
+
 from pidsmaker.config import decoder_matches_objective
 from pidsmaker.decoders import *
 from pidsmaker.encoders import *
@@ -230,6 +233,8 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
                 architecture=cfg.training.encoder.custom_mlp.architecture_str,
                 dropout=dropout,
             )
+        elif method == "hyperbolic_transformer":
+            encoder = create_hyp_encoder(cfg, in_dim)
         else:
             raise ValueError(f"Invalid encoder {method}")
 
@@ -377,11 +382,20 @@ def objective_factory(cfg, in_dim, graph_reindexer, device, objective_cfg=None):
         objective_cfg = cfg.training.decoder
     node_out_dim = cfg.training.node_out_dim
 
+    # Hyperbolic encoder outputs node_out_dim + 1 (Lorentz time component)
+    if "hyperbolic_transformer" in cfg.training.encoder.used_methods:
+        node_out_dim = node_out_dim + 1
+
     entity_map = get_node_map(from_zero=True)
     event_map = get_rel2id(cfg, from_zero=True)
 
     objectives = []
     for objective in map(lambda x: x.strip(), objective_cfg.used_methods.split(",")):
+        # Hyperbolic edge reconstruction: bypass standard decoder/objective matching
+        if objective == "hyperbolic_edge_reconstruction":
+            objectives.append(create_hyp_objective(cfg, node_out_dim))
+            continue
+
         method = getattr(getattr(objective_cfg, objective.strip()), "decoder")
 
         if not decoder_matches_objective(decoder=method, objective=objective):
@@ -667,15 +681,18 @@ def activation_fn_factory(activation: str):
 
 
 def optimizer_factory(cfg, parameters):
-    """Create Adam optimizer with configured learning rate and weight decay.
+    """Create optimizer. Uses DualOptimizer for hyperbolic models, Adam otherwise.
 
     Args:
         cfg: Configuration with training.lr and training.weight_decay
         parameters: Model parameters to optimize
 
     Returns:
-        torch.optim.Adam: Configured optimizer
+        Optimizer instance (DualOptimizer or torch.optim.Adam)
     """
+    if "hyperbolic_transformer" in cfg.training.encoder.used_methods:
+        return create_dual_optimizer(cfg, parameters)
+
     lr = cfg.training.lr
     weight_decay = cfg.training.weight_decay
 
