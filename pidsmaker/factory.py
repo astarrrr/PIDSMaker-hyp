@@ -8,9 +8,6 @@ Supports multiple encoder architectures (SAGE, GAT, GIN, GLSTM, etc.) and object
 import torch
 import torch.nn as nn
 
-# Hyperbolic Transformer integration (myproject must be on PYTHONPATH; run.sh handles this)
-from factory_ext import create_hyp_encoder, create_hyp_objective, create_dual_optimizer
-
 from pidsmaker.config import decoder_matches_objective
 from pidsmaker.decoders import *
 from pidsmaker.encoders import *
@@ -25,6 +22,22 @@ from pidsmaker.utils.dataset_utils import (
     get_num_edge_type,
     get_rel2id,
 )
+
+
+def _require_factory_ext():
+    """Load optional hyperbolic extension only when needed."""
+    try:
+        from factory_ext import (  # type: ignore
+            create_dual_optimizer,
+            create_hyp_encoder,
+            create_hyp_objective,
+        )
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "Hyperbolic modules need optional dependency 'factory_ext'. "
+            "Install it or disable hyperbolic methods in config."
+        ) from exc
+    return create_hyp_encoder, create_hyp_objective, create_dual_optimizer
 
 
 def build_model(data_sample, device, cfg, max_node_num):
@@ -234,6 +247,7 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
                 dropout=dropout,
             )
         elif method == "hyperbolic_transformer":
+            create_hyp_encoder, _, _ = _require_factory_ext()
             encoder = create_hyp_encoder(cfg, in_dim)
         else:
             raise ValueError(f"Invalid encoder {method}")
@@ -393,6 +407,7 @@ def objective_factory(cfg, in_dim, graph_reindexer, device, objective_cfg=None):
     for objective in map(lambda x: x.strip(), objective_cfg.used_methods.split(",")):
         # Hyperbolic edge reconstruction: bypass standard decoder/objective matching
         if objective == "hyperbolic_edge_reconstruction":
+            _, create_hyp_objective, _ = _require_factory_ext()
             objectives.append(create_hyp_objective(cfg, node_out_dim))
             continue
 
@@ -691,6 +706,7 @@ def optimizer_factory(cfg, parameters):
         Optimizer instance (DualOptimizer or torch.optim.Adam)
     """
     if "hyperbolic_transformer" in cfg.training.encoder.used_methods:
+        _, _, create_dual_optimizer = _require_factory_ext()
         return create_dual_optimizer(cfg, parameters)
 
     lr = cfg.training.lr

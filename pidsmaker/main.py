@@ -13,11 +13,16 @@ import argparse
 import copy
 import os
 import shutil
+import sys
 import time
 from collections import defaultdict
 
 import torch
 import wandb
+
+# Allow running as `python pidsmaker/main.py ...` from repository root.
+if __package__ in (None, ""):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pidsmaker.config import (
     get_runtime_required_args,
