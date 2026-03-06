@@ -526,6 +526,14 @@ ENCODERS_CFG = {
         "alpha_l": Arg(float),
         "activation": Arg(str),
     },
+    "hyperbolic_temporal": {
+        "activation": Arg(str),
+        "num_layers": Arg(int),
+        "curvature": Arg(float),
+        "window_size": Arg(int),
+        "htc_weight": Arg(float),
+        "attention_temperature": Arg(float),
+    },
     "glstm": {},
     "custom_mlp": {
         "architecture_str": Arg(str),

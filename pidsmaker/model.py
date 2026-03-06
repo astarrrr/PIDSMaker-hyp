@@ -83,6 +83,7 @@ class Model(nn.Module):
                 node_type=getattr(batch, "node_type", None),
                 node_type_argmax=getattr(batch, "node_type_argmax", None),
             )
+        self._encoder_aux_loss = res.get("aux_loss", None)
         h, h_src, h_dst = self.gather_h(batch, res)
         return h, h_src, h_dst
 
@@ -170,6 +171,10 @@ class Model(nn.Module):
                         f"Shapes of loss/score do not match ({loss.numel()} vs {loss_or_scores.numel()})"
                     )
                 loss_or_scores = loss_or_scores + loss
+
+            # Optional encoder-side regularization (e.g., temporal consistency in HTGN-style encoders).
+            if train_mode and self._encoder_aux_loss is not None:
+                loss_or_scores = loss_or_scores + self._encoder_aux_loss
 
             results["loss"] = loss_or_scores
             return results

@@ -87,6 +87,13 @@ training:
       negative_slope: 0.2
       alpha_l: 3.0
       activation: prelu
+    hyperbolic_temporal:
+      activation: relu
+      num_layers: 2
+      curvature: 1.0
+      window_size: 3
+      htc_weight: 0.01
+      attention_temperature: 1.0
     custom_mlp:
       architecture_str: none
     x_is_tuple: False

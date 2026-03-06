@@ -1,0 +1,133 @@
+#+title:      xray-hyperbolic-temporal-network-embedding
+#+date:       [2026-03-05 Thu 22:25]
+#+filetags:   :read:xray:paper:
+#+identifier: 20260305T222539
+#+source:     10.1109/TKDE.2022.3232398
+#+authors:    Menglin Yang, Min Zhou, Hui Xiong, Irwin King
+#+venue:      IEEE Transactions on Knowledge and Data Engineering (TKDE), Vol.35, No.11, Nov 2023
+
+* NAPKIN FORMULA
+
+#+begin_example
++----------------------------------------------------------+
+|                                                          |
+|   H_t = HGRU( HGNN(A_t, X_t^H),                         |
+|               HTA(H_{t-w : t-1}) )                       |
+|                                                          |
+|   where H_t lives on manifold M^H,  NOT in R^d           |
+|                                                          |
++----------------------------------------------------------+
+#+end_example
+
+在双曲流形上，用 HGNN 编码当前时刻空间拓扑、用 HGRU 融合历史演化、用 HTA 做窗口注意力，产生比欧氏空间更低失真的时序节点表示。
+
+* PROBLEM
+
+**痛点定义**: 现有时序网络嵌入方法全部基于欧氏空间，无法高效表达真实时序网络固有的幂律度分布与层次结构。
+
+**前人困境**: 欧氏空间表达树状/层次结构需要指数级维度才能做到零失真；双曲图神经网络虽已存在，但仅用于静态图，没有人将其与时序演化（快照序列、门控循环、时序注意力）结合。将欧氏 GRU、注意力、非线性等基础操作"搬"到黎曼流形上，数值稳定性极差，之前工作大多只在 Poincare ball 上做到这件事，而 Poincare ball 边界附近分母趋零，数值不稳。
+
+* INSIGHT
+
+**核心直觉**: 双曲空间的体积随半径指数增长——这和幂律分布的大量叶节点恰好匹配。把时序图塞进双曲空间，就像把分形树塞进它"原生"的容器，所需维度远小于欧氏空间。
+
+**关键步骤**:
+
+1. *Hyperbolic Constrained Conversion (HCC)*: 提出统一映射机制，把任意欧氏操作（矩阵乘、激活函数、GRU 门、注意力等）先 exp-map 到切空间、在切空间执行、再 log-map 回流形，并在 Lorentz 模型（比 Poincare ball 数值更稳定）上给出完整公式推导，理论保证输出始终在流形上。
+2. *HGNN + HGRU + HTA + HTC 四件套*: 空间上用双曲图注意力（HGNN）聚合邻居；时序上用双曲门控循环单元（HGRU）驱动状态演化；用窗口历史注意力（HTA）加权融合 w 步历史状态；用时序一致性约束（HTC）惩罚相邻时间步嵌入的突变，形成端到端可训练框架 HTGN。
+
+* DELTA
+
+**vs SOTA**: 在 Wikipedia、Reddit、HepPh、YouTube 四个基准上，链路预测（LP）和新链路预测（NLP）的 AUC / AP 均优于 DySAT、EvolveGCN、VGRNN 等欧氏 baseline 及 HTGN_B（Poincare 版本）。稀疏大图 YouTube 上提升最显著，印证双曲空间对幂律结构的优势随图稀疏度放大。
+
+**新拼图**: 首次将时序网络嵌入系统性地扩展到 Lorentz 双曲模型，并给出 iHTGN（轻量化版本：去掉非线性、折叠权重矩阵、用邻接矩阵幂次做多阶聚合）以处理大规模图，为后续双曲时序学习提供了可复用的 HCC 工具箱。
+
+* CRITIQUE
+
+**隐形假设**:
+- 假设目标时序网络确实具有层次/幂律结构。COLAB 数据集超比性 delta=2.0 已偏离强层次性，此时双曲嵌入的优势缩水；对随机图或格状图可能反而变差。
+- 假设离散时间快照能充分捕获时序动态。连续时间事件流（如 TGN/JODIE 处理的场景）的动态被强行离散化后可能丢失细粒度信息。
+- HCC 的切空间操作统一以 origin（原点）为基准，而非每个点的切空间，这是几何近似，可能在高曲率区域引入额外失真。
+- 曲率 c 的设置策略（固定 -1 或可训练）对结果影响未深入消融，不同层用不同曲率的设计空间未探索。
+
+**未解之谜**:
+- 如何高效处理连续时间时序图（continuous-time temporal graphs），这是目前图学习最活跃的方向，本文未触及。
+- HGRU 为何"simply works"——将 Lorentz 切空间操作拼接成门控结构后收敛的理论保证仍是空白。
+- 超双曲空间（ultrahyperbolic / mixed-curvature product spaces）是作者自己提出的未来方向，尚无结果。
+- 大规模场景下 iHTGN 丢失了 HGRU 时序建模，退化为无记忆的逐快照编码，时序性被削弱，这一 trade-off 没有充分讨论。
+
+* LOGIC FLOW
+
+#+begin_example
+Real-world temporal network
+(power-law degree, hierarchical, scale-free)
+           |
+           v
+  [Problem] Euclidean embedding distorts
+  tree-like structure unless dim --> inf
+           |
+           v
+  [Insight] Hyperbolic space volume grows
+  exponentially --> matches power-law topology
+           |
+           v
+  [HCC] Hyperbolic Constrained Conversion
+  (exp-map --> operate in tangent --> log-map)
+  runs ANY Euclidean op safely on manifold
+     /              \
+    v                v
+[HGNN]           [HGRU]
+Spatial           Temporal
+topology    +     evolution
+(H-attention)     (H-GRU gates)
+     \              /
+      v            v
+     [HTA]
+  Historical window
+  attention (w steps)
+           |
+           v
+     [HTC]
+  Temporal consistency
+  loss (smooth drift)
+           |
+           v
+  Fermi-Dirac decoder
+  on hyperbolic distance
+           |
+           v
+  Link Prediction  /  New Link Prediction
+  (AUC / AP, better than Euclidean SOTA)
+#+end_example
+
+* NAPKIN SKETCH
+
+#+begin_example
+Euclidean (R^2):            Hyperbolic (H^2):
+                            . . . . . . .
+  o-o-o                    .   o         .
+  |   |   -- distorted ->  .  /|\        .
+  o   o                    . o o o o ... .
+  |                        .  \|/        .
+  o-o-o-o-o               .   o         .
+                            . . . . . . .
+  5-level tree              Same tree, less dim,
+  needs high dim            exponential capacity
+
+Timeline (discrete snapshots):
+
+  t=1      t=2      t=3      t=4
+  G_1 ---> G_2 ---> G_3 ---> G_4
+   |        |        |        |
+  HGNN    HGNN    HGNN    HGNN
+   |        |        |        |
+   +--HGRU--+--HGRU--+--HGRU--+
+              HTA (window attention)
+              HTC (smooth constraint)
+                    |
+                  H_t (on manifold M^H)
+                    |
+           Fermi-Dirac(dist_H(u,v))
+                    |
+             link probability
+#+end_example

@@ -219,6 +219,20 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
                 is_decoder=False,
                 edge_dim=edge_dim,  # Pass the calculated edge dimension
             )
+        elif method == "hyperbolic_temporal":
+            ht_cfg = cfg.training.encoder.hyperbolic_temporal
+            encoder = HyperbolicTemporalEncoder(
+                in_dim=in_dim,
+                hid_dim=node_hid_dim,
+                out_dim=node_out_dim,
+                activation=activation_fn_factory(ht_cfg.activation),
+                dropout=dropout,
+                num_layers=ht_cfg.num_layers,
+                c=ht_cfg.curvature,
+                window_size=ht_cfg.window_size,
+                htc_weight=ht_cfg.htc_weight,
+                attention_temperature=ht_cfg.attention_temperature,
+            )
 
         # MLP encoders
         elif method == "none":

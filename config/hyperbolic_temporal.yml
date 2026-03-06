@@ -1,0 +1,21 @@
+_include_yml: orthrus_non_snooped
+
+batching:
+  intra_graph_batching:
+    used_methods: edges
+    edges:
+      intra_graph_batch_size: 1024
+
+training:
+  node_hid_dim: 256
+  node_out_dim: 128
+  encoder:
+    used_methods: hyperbolic_temporal
+    dropout: 0.3
+    hyperbolic_temporal:
+      activation: relu
+      num_layers: 2
+      curvature: 1.0
+      window_size: 3
+      htc_weight: 0.01
+      attention_temperature: 1.0
