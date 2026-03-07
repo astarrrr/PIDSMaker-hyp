@@ -5,6 +5,15 @@ Supports multiple encoder architectures (SAGE, GAT, GIN, GLSTM, etc.) and object
 (reconstruction, prediction, contrastive learning, few-shot detection).
 """
 
+import sys as _sys
+import os as _os
+_myproject_path = _os.path.normpath(
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', 'myproject')
+)
+if _myproject_path not in _sys.path:
+    _sys.path.insert(0, _myproject_path)
+from factory_ext import create_hyp_encoder, create_hyp_objective, create_dual_optimizer
+
 import torch
 import torch.nn as nn
 
@@ -230,6 +239,8 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
                 architecture=cfg.training.encoder.custom_mlp.architecture_str,
                 dropout=dropout,
             )
+        elif method == "hyperbolic_transformer":
+            encoder = create_hyp_encoder(cfg, in_dim)
         else:
             raise ValueError(f"Invalid encoder {method}")
 
@@ -382,6 +393,9 @@ def objective_factory(cfg, in_dim, graph_reindexer, device, objective_cfg=None):
 
     objectives = []
     for objective in map(lambda x: x.strip(), objective_cfg.used_methods.split(",")):
+        if objective == "hyperbolic_edge_reconstruction":
+            objectives.append(create_hyp_objective(cfg, node_out_dim))
+            continue
         method = getattr(getattr(objective_cfg, objective.strip()), "decoder")
 
         if not decoder_matches_objective(decoder=method, objective=objective):
@@ -678,6 +692,9 @@ def optimizer_factory(cfg, parameters):
     """
     lr = cfg.training.lr
     weight_decay = cfg.training.weight_decay
+
+    if "hyperbolic_transformer" in cfg.training.encoder.used_methods:
+        return create_dual_optimizer(cfg, parameters)
 
     return torch.optim.Adam(parameters, lr=lr, weight_decay=weight_decay)
 
