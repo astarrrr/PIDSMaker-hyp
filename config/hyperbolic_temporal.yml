@@ -4,18 +4,18 @@ batching:
   intra_graph_batching:
     used_methods: edges
     edges:
-      intra_graph_batch_size: 1024
+      intra_graph_batch_size: 4096
 
 training:
   node_hid_dim: 256
-  node_out_dim: 128
+  node_out_dim: 320
   encoder:
     used_methods: hyperbolic_temporal
-    dropout: 0.3
+    dropout: 0.5
     hyperbolic_temporal:
       activation: relu
       num_layers: 2
       curvature: 1.0
-      window_size: 3
+      window_size: 5
       htc_weight: 0.01
       attention_temperature: 1.0

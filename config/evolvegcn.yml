@@ -1,0 +1,21 @@
+_include_yml: orthrus_non_snooped
+
+batching:
+  save_on_disk: False
+  intra_graph_batching:
+    used_methods: edges
+    edges:
+      intra_graph_batch_size: 256
+  inter_graph_batching:
+    used_method: none
+
+training:
+  lr: 0.001
+  node_hid_dim: 64
+  node_out_dim: 64
+  encoder:
+    used_methods: evolvegcn_o
+    dropout: 0.3
+    evolvegcn_o:
+      activation: relu
+      num_layers: 2

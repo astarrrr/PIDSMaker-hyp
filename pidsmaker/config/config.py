@@ -534,6 +534,10 @@ ENCODERS_CFG = {
         "htc_weight": Arg(float),
         "attention_temperature": Arg(float),
     },
+    "evolvegcn_o": {
+        "activation": Arg(str),
+        "num_layers": Arg(int),
+    },
     "glstm": {},
     "custom_mlp": {
         "architecture_str": Arg(str),

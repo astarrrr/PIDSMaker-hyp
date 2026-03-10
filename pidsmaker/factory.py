@@ -228,10 +228,21 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
                 activation=activation_fn_factory(ht_cfg.activation),
                 dropout=dropout,
                 num_layers=ht_cfg.num_layers,
+                num_nodes=max_node_num,
                 c=ht_cfg.curvature,
                 window_size=ht_cfg.window_size,
                 htc_weight=ht_cfg.htc_weight,
                 attention_temperature=ht_cfg.attention_temperature,
+            )
+        elif method == "evolvegcn_o":
+            egcn_cfg = cfg.training.encoder.evolvegcn_o
+            encoder = EvolveGCNO(
+                in_dim=in_dim,
+                hid_dim=node_hid_dim,
+                out_dim=node_out_dim,
+                activation=activation_fn_factory(egcn_cfg.activation),
+                dropout=dropout,
+                num_layers=egcn_cfg.num_layers,
             )
 
         # MLP encoders

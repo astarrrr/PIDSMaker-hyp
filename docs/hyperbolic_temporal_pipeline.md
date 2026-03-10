@@ -23,25 +23,28 @@
 实现文件：`pidsmaker/encoders/hyperbolic_temporal.py`
 
 编码器按 HTGN 思路实现了四部分：
-- `HGNN`：图注意力层（GAT）在切空间进行空间聚合。
+- `HGNN`：GraphSAGE 在切空间进行空间聚合。
 - `HGRU`：GRUCell 在切空间进行时序状态更新。
-- `HTA`：历史窗口注意力，融合过去 `window_size` 个时间状态。
+- `HTA`：基于全局节点 ID 的历史窗口注意力，融合同一节点过去 `window_size` 个时间状态。
 - `HTC`：时序一致性约束，惩罚相邻时刻状态突变。
 
 同时使用 HCC 风格的映射：
 - `logmap0`：双曲空间 -> 切空间
 - `expmap0`：切空间 -> 双曲空间
 - 双曲球投影：保证表示保持在流形内部
+- 时间编码：用 TGN 风格的 `cos(Wt)` 把时间标量映射到节点特征维度，而不是额外的时间衰减 gate
 
 ## 4. 模型前向细节（单批次）
 `Model.embed()` 调用编码器时会传入 `x / edge_index / t`，编码器内部流程：
 1. 用边时间 `t` 聚合出节点时间统计，计算时间衰减 gate。
 2. 把 gate 注入节点特征后做 HGNN 空间聚合，得到当前切空间表示 `h_tan_now`。
-3. 读取历史状态（队列）做 HTA，得到历史上下文。
-4. 用 HGRU 融合当前表示和历史上下文。
-5. 通过 `expmap0` 投回双曲空间，得到节点嵌入 `h`。
-6. 计算 HTC 正则：`aux_loss`（若存在历史状态）。
-7. 更新历史状态队列（长度受 `window_size` 限制）。
+3. 用 `batch.original_n_id` 把当前局部节点对齐到全局节点 ID。
+4. 从 `global_state[original_n_id]` 取同一节点上一时刻状态。
+5. 从稀疏节点历史 `node_history[node_id]` 抽取每个节点过去 `window_size` 个状态，只对同一节点的历史做 HTA。
+6. 用 HGRU 融合当前表示、节点历史上下文和上一时刻节点状态。
+7. 通过 `expmap0` 投回双曲空间，得到节点嵌入 `h`。
+8. 计算 HTC 正则：用双曲距离约束同一节点相邻时间状态平滑变化。
+9. 更新 `global_state[original_n_id] = h`，并把每个活跃节点的新状态追加到各自的历史队列。
 
 ## 5. 训练损失如何组成
 - 主损失来自 `training.decoder.used_methods` 对应 objective（如 `predict_edge_type`）。
@@ -53,7 +56,7 @@
 在 `training.encoder.hyperbolic_temporal` 下：
 - `num_layers`：HGNN 层数。
 - `curvature`：双曲曲率参数（球半径相关）。
-- `window_size`：HTA 关注的历史时间步数（w）。
+- `window_size`：HTA 关注的历史时间步数（w），按节点全局 ID 对齐。
 - `htc_weight`：HTC 正则权重。
 - `attention_temperature`：历史注意力温度。
 
@@ -69,6 +72,7 @@
 当前实现是工程化版本：
 - 保留了上述四件套和双曲映射主线；
 - 在现有 PIDSMaker 架构下复用 objective/decoder/evaluation 体系。
+- 历史存储是按节点稀疏维护的，不保存整张全局状态历史张量，避免 `window x N_global x d` 内存爆炸。
 
 ## 8. 运行建议
 - 标准运行：

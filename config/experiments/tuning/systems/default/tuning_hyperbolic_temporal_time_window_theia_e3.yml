@@ -1,0 +1,5 @@
+method: grid
+
+parameters:
+  construction.time_window_size:
+    values: [1.0, 3.0, 5.0, 10.0, 15.0,100.0]
