@@ -7,6 +7,8 @@ import uuid
 from collections import OrderedDict
 from copy import deepcopy
 
+from pidsmaker.encoders import encoder_uses_tgn
+
 import yaml
 from yacs.config import CfgNode as CN
 
@@ -463,7 +465,7 @@ def check_edge_cases(cfg):
     """
     decoders = cfg.training.decoder.used_methods
     use_tgn_neigh_loader = "tgn_last_neighbor" in cfg.batching.intra_graph_batching.used_methods
-    use_tgn = "tgn" in cfg.training.encoder.used_methods
+    use_tgn = encoder_uses_tgn(cfg.training.encoder.used_methods)
     use_rcaid_pseudo_graph = "rcaid_pseudo_graph" in cfg.transformation.used_methods
 
     if use_tgn_neigh_loader:

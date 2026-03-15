@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from pidsmaker.encoders import GRU
+from .gru import GRU
 
 
 class TGNEncoder(nn.Module):

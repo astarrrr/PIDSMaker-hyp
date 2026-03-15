@@ -4,7 +4,7 @@ construction:
   used_method: default
   use_all_files: True
   mimicry_edge_num: 0
-  time_window_size: 15.0
+  time_window_size: 1.0
   use_hashed_label: False
   fuse_edge: True
   node_label_features:
@@ -61,7 +61,7 @@ training:
   patience: 3
   lr: 0.00001
   weight_decay: 0.00001
-  node_hid_dim: 128
+  node_hid_dim: 64
   node_out_dim: 64
   grad_accumulation: 1
   encoder:

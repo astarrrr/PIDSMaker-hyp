@@ -530,6 +530,12 @@ ENCODERS_CFG = {
     "custom_mlp": {
         "architecture_str": Arg(str),
     },
+    "early_fusion": {
+        "mode": Arg(str, vals=OR(["fusion", "context_only", "instant_only"])),
+        "instant_method": Arg(str, vals=OR(["graph_attention", "mlp"])),
+        "gate_hidden_dim": Arg(int),
+        "use_edge_features": Arg(bool),
+    },
     "none": {},
     "hyperbolic_transformer": {
         "trans_num_layers": Arg(int),

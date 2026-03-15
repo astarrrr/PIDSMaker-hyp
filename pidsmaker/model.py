@@ -199,7 +199,7 @@ class Model(nn.Module):
         for objective in self.objectives:
             objective.graph_reindexer.to(device)
 
-        if isinstance(self.encoder, TGNEncoder):
+        if hasattr(self.encoder, "to_device"):
             self.encoder.to_device(device)
 
         self.device = device

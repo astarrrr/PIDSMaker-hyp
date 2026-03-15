@@ -89,6 +89,11 @@ training:
       activation: prelu
     custom_mlp:
       architecture_str: none
+    early_fusion:
+      mode: fusion
+      instant_method: graph_attention
+      gate_hidden_dim: 64
+      use_edge_features: True
     x_is_tuple: False
   decoder:
     predict_edge_type:

@@ -25,7 +25,7 @@ from torch_scatter import scatter
 
 from pidsmaker.config import update_cfg_for_multi_dataset
 from pidsmaker.debug_tests import debug_test_batching
-from pidsmaker.encoders import TGNEncoder
+from pidsmaker.encoders import TGNEncoder, encoder_uses_tgn
 from pidsmaker.tgn import LastNeighborLoader
 from pidsmaker.utils.dataset_utils import (
     get_node_map,
@@ -294,7 +294,7 @@ def extract_msg_from_data(
         g.node_type_src = fields["src_type"]
         g.node_type_dst = fields["dst_type"]
 
-        if "tgn" in cfg.training.encoder.used_methods and cfg.training.encoder.tgn.use_memory:
+        if encoder_uses_tgn(cfg.training.encoder.used_methods) and cfg.training.encoder.tgn.use_memory:
             g.msg = msg
 
         # NOTE: do not add edge_index as it is already within `CollatableTemporalData`
@@ -523,7 +523,7 @@ def run_reindexing_preprocessing(datasets, graph_reindexer, device, cfg):
     if not use_unique_edge_types:
         log_dataset_stats(datasets)
         # By default we only have x_src and x_dst of shape (E, d), here we create x of shape (N, d)
-        use_tgn = "tgn" in cfg.training.encoder.used_methods
+        use_tgn = encoder_uses_tgn(cfg.training.encoder.used_methods)
         reindex_graphs(
             datasets,
             graph_reindexer,
@@ -711,7 +711,7 @@ def run_inter_graph_batching(datasets, cfg):
                     batch = data_list[i : i + bs]
                     data = collate(CollatableTemporalData, data_list=batch)[0]
 
-                    use_tgn = "tgn" in cfg.training.encoder.used_methods
+                    use_tgn = encoder_uses_tgn(cfg.training.encoder.used_methods)
                     if cfg._debug and use_tgn:
                         debug_test_batching(batch, data, cfg)
                     result[-1].append(data)
@@ -818,6 +818,7 @@ class GraphReindexer:
         )
         data.original_n_id = n_id
         data.x = x
+        data.reindexed_edge_index = edge_index
 
         if not use_tgn:
             data.src, data.dst = edge_index[0], edge_index[1]
@@ -880,15 +881,16 @@ def save_model(model, path: str, cfg):
         pickle_protocol=pickle.HIGHEST_PROTOCOL,
     )
 
-    if isinstance(model.encoder, TGNEncoder):
+    tgn_encoder = get_tgn_state_encoder(model.encoder)
+    if tgn_encoder is not None and hasattr(tgn_encoder, "neighbor_loader"):
         torch.save(
-            model.encoder.neighbor_loader,
+            tgn_encoder.neighbor_loader,
             os.path.join(path, "neighbor_loader.pkl"),
             pickle_protocol=pickle.HIGHEST_PROTOCOL,
         )
         if cfg.training.encoder.tgn.use_memory or "time_encoding" in cfg.batching.edge_features:
             torch.save(
-                model.encoder.memory,
+                tgn_encoder.memory,
                 os.path.join(path, "memory.pkl"),
                 pickle_protocol=pickle.HIGHEST_PROTOCOL,
             )
@@ -900,10 +902,11 @@ def load_model(model, path: str, cfg, map_location=None):
     """
     model.load_state_dict(torch.load(os.path.join(path, "state_dict.pkl")))
 
-    if isinstance(model.encoder, TGNEncoder):
-        model.encoder.neighbor_loader = torch.load(os.path.join(path, "neighbor_loader.pkl"))
+    tgn_encoder = get_tgn_state_encoder(model.encoder)
+    if tgn_encoder is not None and os.path.exists(os.path.join(path, "neighbor_loader.pkl")):
+        tgn_encoder.neighbor_loader = torch.load(os.path.join(path, "neighbor_loader.pkl"))
         if cfg.training.encoder.tgn.use_memory or "time_encoding" in cfg.batching.edge_features:
-            model.encoder.memory = torch.load(os.path.join(path, "memory.pkl"))
+            tgn_encoder.memory = torch.load(os.path.join(path, "memory.pkl"))
 
     return model
 
@@ -915,3 +918,11 @@ def reindex_graphs(datasets, graph_reindexer, device, use_tgn, x_is_tuple=False)
                 batch.to(device)
                 graph_reindexer.reindex_graph(batch, use_tgn=use_tgn, x_is_tuple=x_is_tuple)
                 batch.to("cpu")
+
+
+def get_tgn_state_encoder(encoder):
+    if isinstance(encoder, TGNEncoder):
+        return encoder
+    if hasattr(encoder, "get_tgn_encoder"):
+        return encoder.get_tgn_encoder()
+    return None

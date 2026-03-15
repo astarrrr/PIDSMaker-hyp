@@ -1,0 +1,10 @@
+_include_yml: orthrus_non_snooped
+
+training:
+  encoder:
+    used_methods: early_fusion
+    early_fusion:
+      mode: fusion
+      instant_method: graph_attention
+      gate_hidden_dim: 64
+      use_edge_features: True

@@ -8,9 +8,6 @@ Supports multiple encoder architectures (SAGE, GAT, GIN, GLSTM, etc.) and object
 import torch
 import torch.nn as nn
 
-# Hyperbolic Transformer integration (myproject must be on PYTHONPATH; run.sh handles this)
-from factory_ext import create_hyp_encoder, create_hyp_objective, create_dual_optimizer
-
 from pidsmaker.config import decoder_matches_objective
 from pidsmaker.decoders import *
 from pidsmaker.encoders import *
@@ -25,6 +22,19 @@ from pidsmaker.utils.dataset_utils import (
     get_num_edge_type,
     get_rel2id,
 )
+
+
+def _import_hyperbolic_factory():
+    try:
+        from factory_ext import create_dual_optimizer, create_hyp_encoder, create_hyp_objective
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "Hyperbolic components require `factory_ext` on PYTHONPATH. "
+            "This dependency is only needed when using `hyperbolic_transformer` "
+            "or `hyperbolic_edge_reconstruction`."
+        ) from exc
+
+    return create_hyp_encoder, create_hyp_objective, create_dual_optimizer
 
 
 def build_model(data_sample, device, cfg, max_node_num):
@@ -110,7 +120,7 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
     node_hid_dim = cfg.training.node_hid_dim
     node_out_dim = cfg.training.node_out_dim
     tgn_memory_dim = cfg.training.encoder.tgn.tgn_memory_dim
-    use_tgn = "tgn" in cfg.training.encoder.used_methods
+    use_tgn = encoder_uses_tgn(cfg.training.encoder.used_methods)
     dropout = cfg.training.encoder.dropout
 
     node_map = get_node_map(from_zero=True)
@@ -119,174 +129,245 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
     edge_dim = get_edge_dim(cfg, msg_dim)
 
     original_in_dim = in_dim
-    if use_tgn:
-        in_dim = tgn_memory_dim
+    encoder_methods = get_encoder_methods(cfg.training.encoder.used_methods)
+    context_in_dim = tgn_memory_dim if use_tgn else in_dim
 
-    for method in map(
-        lambda x: x.strip(),
-        cfg.training.encoder.used_methods.replace("-", ",").split(","),
-    ):
-        if method in ["tgn"]:
-            pass
-
-        # Basic GNN encoders
-        elif method == "graph_attention":
-            encoder = GraphAttentionEmbedding(
-                in_dim=in_dim,
-                hid_dim=node_hid_dim,
-                out_dim=node_out_dim,
-                edge_dim=edge_dim or None,
-                activation=activation_fn_factory(cfg.training.encoder.graph_attention.activation),
-                dropout=dropout,
-                num_heads=cfg.training.encoder.graph_attention.num_heads,
-                concat=cfg.training.encoder.graph_attention.concat,
-                flow=cfg.training.encoder.graph_attention.flow,
-                num_layers=cfg.training.encoder.graph_attention.num_layers,
-            )
-        elif method == "sage":
-            encoder = SAGE(
-                in_dim=in_dim,
-                hid_dim=node_hid_dim,
-                out_dim=node_out_dim,
-                activation=activation_fn_factory(cfg.training.encoder.sage.activation),
-                dropout=dropout,
-                num_layers=cfg.training.encoder.sage.num_layers,
-            )
-        elif method == "gat":
-            encoder = GAT(
-                in_dim=in_dim,
-                hid_dim=node_hid_dim,
-                out_dim=node_out_dim,
-                activation=activation_fn_factory(cfg.training.encoder.gat.activation),
-                dropout=dropout,
-                num_heads=cfg.training.encoder.gat.num_heads,
-                concat=cfg.training.encoder.gat.concat,
-                num_layers=cfg.training.encoder.gat.num_layers,
-            )
-        elif method == "gin":
-            encoder = GIN(
-                in_dim=in_dim,
-                hid_dim=node_hid_dim,
-                out_dim=node_out_dim,
-                edge_dim=edge_dim or None,
-                dropout=dropout,
-                activation=activation_fn_factory(cfg.training.encoder.gin.activation),
-                num_layers=cfg.training.encoder.gin.num_layers,
-            )
-        elif method == "sum_aggregation":
-            encoder = SumAggregation(
-                in_dim=in_dim,
-                hid_dim=node_hid_dim,
-                out_dim=node_out_dim,
-            )
-
-        # System-specific encoders
-        elif method == "glstm":
-            encoder = GLSTM(
-                in_features=in_dim,
-                out_features=node_out_dim,
-                cell_clip=None,
-                type_specific_decoding=False,
-                exclude_file=True,
-                exclude_ip=True,
-                typed_hidden_rep=False,
-                edge_dim=None,
-                full_param=False,
-                num_edge_type=15,  # TODO: we should use 10 here
-            ).to(device)
-        elif method == "rcaid_gat":
-            encoder = RCaidGAT(
-                in_dim=in_dim,
-                hid_dim=node_hid_dim,
-                out_dim=node_out_dim,
-                dropout=dropout,
-            )
-        elif method == "magic_gat":
-            n_layers = cfg.training.encoder.magic_gat.num_layers
-            n_heads = cfg.training.encoder.magic_gat.num_heads
-            negative_slope = cfg.training.encoder.magic_gat.negative_slope
-            assert node_hid_dim % n_heads == 0, "Invalid shape dim for number of heads"
-
-            encoder = MagicGAT(
-                in_dim=in_dim,
-                hid_dim=node_hid_dim,
-                out_dim=node_out_dim,
-                n_layers=n_layers,
-                n_heads=n_heads,
-                feat_drop=0.1,
-                attn_drop=0.0,
-                negative_slope=negative_slope,
-                concat_out=True,
-                residual=True,
-                activation=activation_fn_factory(cfg.training.encoder.magic_gat.activation),
-                is_decoder=False,
-                edge_dim=edge_dim,  # Pass the calculated edge dimension
-            )
-
-        # MLP encoders
-        elif method == "none":
-            encoder = LinearEncoder(in_dim, node_out_dim)
-        elif method == "custom_mlp":
-            encoder = CustomMLPEncoder(
-                in_dim=in_dim,
-                out_dim=node_out_dim,
-                architecture=cfg.training.encoder.custom_mlp.architecture_str,
-                dropout=dropout,
-            )
-        elif method == "hyperbolic_transformer":
-            encoder = create_hyp_encoder(cfg, in_dim)
-        else:
-            raise ValueError(f"Invalid encoder {method}")
-
-    if use_tgn:
-        tgn_cfg = cfg.training.encoder.tgn
-        time_dim = tgn_cfg.tgn_time_dim
-        use_node_feats_in_gnn = tgn_cfg.use_node_feats_in_gnn
-        use_memory = tgn_cfg.use_memory
-        use_time_order_encoding = tgn_cfg.use_time_order_encoding
-        project_src_dst = tgn_cfg.project_src_dst
-        edge_features = list(map(lambda x: x.strip(), cfg.batching.edge_features.split(",")))
-
-        use_time_enc = "time_encoding" in cfg.batching.edge_features
-
-        if use_memory:
-            memory = TGNMemory(
-                max_node_num,
-                msg_dim,
-                tgn_memory_dim,
-                time_dim,
-                message_module=IdentityMessage(msg_dim, tgn_memory_dim, time_dim),
-                aggregator_module=LastAggregator(),
-                device=device,
-            )
-        elif use_time_enc:
-            memory = TimeEncodingMemory(
-                max_node_num,
-                time_dim,
-                device=device,
-            )
-        else:
-            memory = None
-
-        encoder = TGNEncoder(
-            encoder=encoder,
-            memory=memory,
-            time_encoder=memory.time_enc if memory else None,
-            in_dim=original_in_dim,
-            memory_dim=tgn_memory_dim,
-            use_node_feats_in_gnn=use_node_feats_in_gnn,
-            edge_features=edge_features,
-            device=device,
-            use_memory=use_memory,
-            use_time_enc=use_time_enc,
+    if "early_fusion" in encoder_methods:
+        context_encoder = build_standard_encoder(
+            method="graph_attention",
+            cfg=cfg,
+            in_dim=context_in_dim,
+            node_hid_dim=node_hid_dim,
+            node_out_dim=node_out_dim,
             edge_dim=edge_dim,
-            use_time_order_encoding=use_time_order_encoding,
-            project_src_dst=project_src_dst,
+            dropout=dropout,
+            device=device,
+        )
+        context_encoder = wrap_with_tgn(
+            encoder=context_encoder,
+            cfg=cfg,
+            msg_dim=msg_dim,
+            original_in_dim=original_in_dim,
+            tgn_memory_dim=tgn_memory_dim,
+            edge_dim=edge_dim,
+            device=device,
+            max_node_num=max_node_num,
+            node_map=node_map,
+            edge_map=edge_map,
+        )
+
+        early_fusion_cfg = cfg.training.encoder.early_fusion
+        instant_encoder = InstantEncoder(
+            in_dim=original_in_dim,
+            hid_dim=node_hid_dim,
+            out_dim=node_out_dim,
+            dropout=dropout,
+            activation=activation_fn_factory(cfg.training.encoder.graph_attention.activation),
+            edge_dim=edge_dim or None,
+            method=early_fusion_cfg.instant_method,
+            use_edge_features=early_fusion_cfg.use_edge_features,
+        )
+        return EarlyFusionEncoder(
+            context_encoder=context_encoder,
+            instant_encoder=instant_encoder,
+            out_dim=node_out_dim,
+            mode=early_fusion_cfg.mode,
+            gate_hidden_dim=early_fusion_cfg.gate_hidden_dim,
+        )
+
+    for method in encoder_methods:
+        if method == "tgn":
+            continue
+        encoder = build_standard_encoder(
+            method=method,
+            cfg=cfg,
+            in_dim=context_in_dim if use_tgn else in_dim,
+            node_hid_dim=node_hid_dim,
+            node_out_dim=node_out_dim,
+            edge_dim=edge_dim,
+            dropout=dropout,
+            device=device,
+        )
+
+    if use_tgn:
+        encoder = wrap_with_tgn(
+            encoder=encoder,
+            cfg=cfg,
+            msg_dim=msg_dim,
+            original_in_dim=original_in_dim,
+            tgn_memory_dim=tgn_memory_dim,
+            edge_dim=edge_dim,
+            device=device,
+            max_node_num=max_node_num,
             node_map=node_map,
             edge_map=edge_map,
         )
 
     return encoder
+
+
+def build_standard_encoder(method, cfg, in_dim, node_hid_dim, node_out_dim, edge_dim, dropout, device):
+    if method == "graph_attention":
+        return GraphAttentionEmbedding(
+            in_dim=in_dim,
+            hid_dim=node_hid_dim,
+            out_dim=node_out_dim,
+            edge_dim=edge_dim or None,
+            activation=activation_fn_factory(cfg.training.encoder.graph_attention.activation),
+            dropout=dropout,
+            num_heads=cfg.training.encoder.graph_attention.num_heads,
+            concat=cfg.training.encoder.graph_attention.concat,
+            flow=cfg.training.encoder.graph_attention.flow,
+            num_layers=cfg.training.encoder.graph_attention.num_layers,
+        )
+    if method == "sage":
+        return SAGE(
+            in_dim=in_dim,
+            hid_dim=node_hid_dim,
+            out_dim=node_out_dim,
+            activation=activation_fn_factory(cfg.training.encoder.sage.activation),
+            dropout=dropout,
+            num_layers=cfg.training.encoder.sage.num_layers,
+        )
+    if method == "gat":
+        return GAT(
+            in_dim=in_dim,
+            hid_dim=node_hid_dim,
+            out_dim=node_out_dim,
+            activation=activation_fn_factory(cfg.training.encoder.gat.activation),
+            dropout=dropout,
+            num_heads=cfg.training.encoder.gat.num_heads,
+            concat=cfg.training.encoder.gat.concat,
+            num_layers=cfg.training.encoder.gat.num_layers,
+        )
+    if method == "gin":
+        return GIN(
+            in_dim=in_dim,
+            hid_dim=node_hid_dim,
+            out_dim=node_out_dim,
+            edge_dim=edge_dim or None,
+            dropout=dropout,
+            activation=activation_fn_factory(cfg.training.encoder.gin.activation),
+            num_layers=cfg.training.encoder.gin.num_layers,
+        )
+    if method == "sum_aggregation":
+        return SumAggregation(
+            in_dim=in_dim,
+            hid_dim=node_hid_dim,
+            out_dim=node_out_dim,
+        )
+    if method == "glstm":
+        return GLSTM(
+            in_features=in_dim,
+            out_features=node_out_dim,
+            cell_clip=None,
+            type_specific_decoding=False,
+            exclude_file=True,
+            exclude_ip=True,
+            typed_hidden_rep=False,
+            edge_dim=None,
+            full_param=False,
+            num_edge_type=15,
+        ).to(device)
+    if method == "rcaid_gat":
+        return RCaidGAT(
+            in_dim=in_dim,
+            hid_dim=node_hid_dim,
+            out_dim=node_out_dim,
+            dropout=dropout,
+        )
+    if method == "magic_gat":
+        n_layers = cfg.training.encoder.magic_gat.num_layers
+        n_heads = cfg.training.encoder.magic_gat.num_heads
+        negative_slope = cfg.training.encoder.magic_gat.negative_slope
+        assert node_hid_dim % n_heads == 0, "Invalid shape dim for number of heads"
+        return MagicGAT(
+            in_dim=in_dim,
+            hid_dim=node_hid_dim,
+            out_dim=node_out_dim,
+            n_layers=n_layers,
+            n_heads=n_heads,
+            feat_drop=0.1,
+            attn_drop=0.0,
+            negative_slope=negative_slope,
+            concat_out=True,
+            residual=True,
+            activation=activation_fn_factory(cfg.training.encoder.magic_gat.activation),
+            is_decoder=False,
+            edge_dim=edge_dim,
+        )
+    if method == "none":
+        return LinearEncoder(in_dim, node_out_dim)
+    if method == "custom_mlp":
+        return CustomMLPEncoder(
+            in_dim=in_dim,
+            out_dim=node_out_dim,
+            architecture=cfg.training.encoder.custom_mlp.architecture_str,
+            dropout=dropout,
+        )
+    if method == "hyperbolic_transformer":
+        create_hyp_encoder, _, _ = _import_hyperbolic_factory()
+        return create_hyp_encoder(cfg, in_dim)
+    raise ValueError(f"Invalid encoder {method}")
+
+
+def wrap_with_tgn(
+    encoder,
+    cfg,
+    msg_dim,
+    original_in_dim,
+    tgn_memory_dim,
+    edge_dim,
+    device,
+    max_node_num,
+    node_map,
+    edge_map,
+):
+    tgn_cfg = cfg.training.encoder.tgn
+    time_dim = tgn_cfg.tgn_time_dim
+    use_node_feats_in_gnn = tgn_cfg.use_node_feats_in_gnn
+    use_memory = tgn_cfg.use_memory
+    use_time_order_encoding = tgn_cfg.use_time_order_encoding
+    project_src_dst = tgn_cfg.project_src_dst
+    edge_features = list(map(lambda x: x.strip(), cfg.batching.edge_features.split(",")))
+    use_time_enc = "time_encoding" in cfg.batching.edge_features
+
+    if use_memory:
+        memory = TGNMemory(
+            max_node_num,
+            msg_dim,
+            tgn_memory_dim,
+            time_dim,
+            message_module=IdentityMessage(msg_dim, tgn_memory_dim, time_dim),
+            aggregator_module=LastAggregator(),
+            device=device,
+        )
+    elif use_time_enc:
+        memory = TimeEncodingMemory(
+            max_node_num,
+            time_dim,
+            device=device,
+        )
+    else:
+        memory = None
+
+    return TGNEncoder(
+        encoder=encoder,
+        memory=memory,
+        time_encoder=memory.time_enc if memory else None,
+        in_dim=original_in_dim,
+        memory_dim=tgn_memory_dim,
+        use_node_feats_in_gnn=use_node_feats_in_gnn,
+        edge_features=edge_features,
+        device=device,
+        use_memory=use_memory,
+        use_time_enc=use_time_enc,
+        edge_dim=edge_dim,
+        use_time_order_encoding=use_time_order_encoding,
+        project_src_dst=project_src_dst,
+        node_map=node_map,
+        edge_map=edge_map,
+    )
 
 
 def decoder_factory(method, objective, cfg, in_dim, out_dim, device, objective_cfg=None):
@@ -393,6 +474,7 @@ def objective_factory(cfg, in_dim, graph_reindexer, device, objective_cfg=None):
     for objective in map(lambda x: x.strip(), objective_cfg.used_methods.split(",")):
         # Hyperbolic edge reconstruction: bypass standard decoder/objective matching
         if objective == "hyperbolic_edge_reconstruction":
+            _, create_hyp_objective, _ = _import_hyperbolic_factory()
             objectives.append(create_hyp_objective(cfg, node_out_dim))
             continue
 
@@ -691,6 +773,7 @@ def optimizer_factory(cfg, parameters):
         Optimizer instance (DualOptimizer or torch.optim.Adam)
     """
     if "hyperbolic_transformer" in cfg.training.encoder.used_methods:
+        _, _, create_dual_optimizer = _import_hyperbolic_factory()
         return create_dual_optimizer(cfg, parameters)
 
     lr = cfg.training.lr
@@ -749,7 +832,7 @@ def get_edge_dim(cfg, msg_dim):
     """
     edge_dim = 0
     edge_features = list(map(lambda x: x.strip(), cfg.batching.edge_features.split(",")))
-    use_tgn = "tgn" in cfg.training.encoder.used_methods
+    use_tgn = encoder_uses_tgn(cfg.training.encoder.used_methods)
     tgn_memory_dim = cfg.training.encoder.tgn.tgn_memory_dim
 
     for edge_feat in edge_features:
