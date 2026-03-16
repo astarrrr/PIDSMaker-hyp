@@ -51,6 +51,30 @@ from pidsmaker.tasks import (
 from pidsmaker.utils.utils import log, remove_underscore_keys, set_seed
 
 
+def init_wandb(args, exp_name, tags):
+    """Initialize W&B with env override and graceful fallback."""
+    mode = os.environ.get(
+        "WANDB_MODE",
+        "online" if (args.wandb and args.tuning_mode == "none") else "disabled",
+    )
+
+    try:
+        wandb.init(
+            mode=mode,
+            project=args.project,
+            name=exp_name,
+            tags=tags,
+        )
+    except Exception as exc:
+        print(f"W&B init failed in mode={mode!r}: {exc}. Falling back to disabled mode.")
+        wandb.init(
+            mode="disabled",
+            project=args.project,
+            name=exp_name,
+            tags=tags,
+        )
+
+
 def get_task_to_module(cfg):
     """Map task names to their corresponding modules and task paths.
 
@@ -332,12 +356,7 @@ if __name__ == "__main__":
     )
     tags = args.tags.split(",") if args.tags != "" else [args.model]
 
-    wandb.init(
-        mode=("online" if (args.wandb and args.tuning_mode == "none") else "disabled"),
-        project=args.project,
-        name=exp_name,
-        tags=tags,
-    )
+    init_wandb(args, exp_name, tags)
 
     if len(unknown_args) > 0:
         raise argparse.ArgumentTypeError(f"Unknown args {unknown_args}")

@@ -30,9 +30,21 @@ import torch
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
 
-nltk.download("punkt", quiet=True)
-
 from pidsmaker.config import update_cfg_for_multi_dataset
+
+
+try:
+    nltk.data.find("tokenizers/punkt")
+    _HAS_NLTK_PUNKT = True
+except LookupError:
+    _HAS_NLTK_PUNKT = False
+
+
+def _safe_word_tokenize(text: str):
+    """Use punkt when available; otherwise fall back to NLTK's regex tokenizer."""
+    if _HAS_NLTK_PUNKT:
+        return word_tokenize(text)
+    return nltk.tokenize.wordpunct_tokenize(text)
 
 
 def stringtomd5(originstr):
@@ -370,17 +382,17 @@ def remove_underscore_keys(data, keys_to_keep=[], keys_to_rm=[]):
 
 def tokenize_subject(sentence: str):
     new_sentence = re.sub(r"\\+", "/", sentence)
-    return word_tokenize(new_sentence.replace("/", " / "))
+    return _safe_word_tokenize(new_sentence.replace("/", " / "))
     # return word_tokenize(sentence.replace('/',' ').replace('=',' = ').replace(':',' : '))
 
 
 def tokenize_file(sentence: str):
     new_sentence = re.sub(r"\\+", "/", sentence)
-    return word_tokenize(new_sentence.replace("/", " / "))
+    return _safe_word_tokenize(new_sentence.replace("/", " / "))
 
 
 def tokenize_netflow(sentence: str):
-    return word_tokenize(sentence.replace(":", " : ").replace(".", " . "))
+    return _safe_word_tokenize(sentence.replace(":", " : ").replace(".", " . "))
 
 
 def tokenize_label(node_label, node_type):
@@ -397,7 +409,9 @@ def tokenize_label(node_label, node_type):
 
 def tokenize_arbitrary_label(sentence):
     new_sentence = re.sub(r"\\+", "/", sentence)
-    return word_tokenize(new_sentence.replace("/", " / ").replace(":", " : ").replace(".", " . "))
+    return _safe_word_tokenize(
+        new_sentence.replace("/", " / ").replace(":", " : ").replace(".", " . ")
+    )
 
 
 def log(msg: str, return_line=False, pre_return_line=False, *args, **kwargs):

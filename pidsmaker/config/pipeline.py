@@ -26,6 +26,9 @@ from .config import (
 
 ROOT_PROJECT_PATH = pathlib.Path(__file__).parent.parent.parent.resolve()
 ROOT_GROUND_TRUTH_DIR = os.path.join(ROOT_PROJECT_PATH, "Ground_Truth/")
+DEFAULT_ARTIFACT_DIR = os.environ.get(
+    "PIDSMAKER_ARTIFACT_DIR", os.path.join(ROOT_PROJECT_PATH, "artifacts")
+)
 
 # ================================================================================
 
@@ -147,7 +150,9 @@ def get_runtime_required_args(return_unknown_args=False, args=None):
     )
     parser.add_argument("--sweep_id", default="", help="ID of a wandb sweep for multi-agent runs")
     parser.add_argument(
-        "--artifact_dir", default="/home/artifacts/", help="Destination folder for generated files"
+        "--artifact_dir",
+        default=DEFAULT_ARTIFACT_DIR,
+        help="Destination folder for generated files",
     )
     parser.add_argument(
         "--test_mode",
