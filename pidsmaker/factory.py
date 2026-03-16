@@ -101,6 +101,8 @@ def model_factory(encoder, objectives, objective_few_shot, cfg, device):
         is_running_mc_dropout=cfg._is_running_mc_dropout,
         use_few_shot=cfg.training.decoder.use_few_shot,
         freeze_encoder=cfg.training.decoder.few_shot.freeze_encoder,
+        node_out_dim=cfg.training.node_out_dim,
+        temporal_contrastive_cfg=cfg.training.temporal_contrastive,
     ).to(device)
 
 

@@ -10,6 +10,7 @@ import copy
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from pidsmaker.encoders import TGNEncoder
 from pidsmaker.experiments.uncertainty import activate_dropout_inference
@@ -35,6 +36,8 @@ class Model(nn.Module):
         is_running_mc_dropout,
         use_few_shot,
         freeze_encoder,
+        node_out_dim,
+        temporal_contrastive_cfg,
     ):
         super(Model, self).__init__()
 
@@ -47,6 +50,18 @@ class Model(nn.Module):
         self.use_few_shot = use_few_shot
         self.few_shot_mode = False
         self.freeze_encoder = freeze_encoder
+        self.temporal_contrastive_cfg = temporal_contrastive_cfg
+        self.temporal_contrastive_enabled = temporal_contrastive_cfg.enabled
+
+        if self.temporal_contrastive_enabled:
+            proj_dim = temporal_contrastive_cfg.projection_dim
+            self.temporal_projector = nn.Sequential(
+                nn.Linear(node_out_dim, proj_dim),
+                nn.ReLU(),
+                nn.Linear(proj_dim, proj_dim),
+            )
+        else:
+            self.temporal_projector = None
 
     def embed(self, batch, inference=False, **kwargs):
         """Generate node embeddings for batch using encoder.
@@ -138,6 +153,7 @@ class Model(nn.Module):
         with torch.set_grad_enabled(train_mode):
             # Train mode: loss | Inference mode: scores
             loss_or_scores = None
+            temporal_state = self._get_temporal_state(batch, h)
 
             for objective in self.objectives:
                 results = objective(
@@ -172,7 +188,73 @@ class Model(nn.Module):
                 loss_or_scores = loss_or_scores + loss
 
             results["loss"] = loss_or_scores
+            if temporal_state is not None:
+                results["temporal_state"] = temporal_state
             return results
+
+    def _get_temporal_state(self, batch, h):
+        if not self.temporal_contrastive_enabled or not isinstance(h, torch.Tensor):
+            return None
+
+        node_ids = getattr(batch, "original_n_id", None)
+        if node_ids is None or h.shape[0] != node_ids.shape[0]:
+            return None
+
+        return {
+            "node_ids": node_ids,
+            "node_embeddings": h,
+        }
+
+    def detach_temporal_state(self, temporal_state):
+        if temporal_state is None:
+            return None
+
+        return {
+            "node_ids": temporal_state["node_ids"].detach(),
+            "node_embeddings": temporal_state["node_embeddings"].detach(),
+        }
+
+    def compute_temporal_contrastive_loss(self, current_state, previous_state):
+        if (
+            not self.temporal_contrastive_enabled
+            or current_state is None
+            or previous_state is None
+        ):
+            return torch.zeros(1, device=self.device).squeeze()
+
+        curr_ids = current_state["node_ids"]
+        prev_ids = previous_state["node_ids"]
+        curr_h = current_state["node_embeddings"]
+        prev_h = previous_state["node_embeddings"]
+
+        shared_mask = torch.isin(curr_ids, prev_ids)
+        if not torch.any(shared_mask):
+            return curr_h.new_zeros(())
+
+        curr_idx = torch.nonzero(shared_mask, as_tuple=False).squeeze(-1)
+        shared_ids = curr_ids[curr_idx]
+
+        prev_sorted_ids, prev_perm = torch.sort(prev_ids)
+        prev_idx = prev_perm[torch.searchsorted(prev_sorted_ids, shared_ids)]
+
+        max_pairs = self.temporal_contrastive_cfg.max_pairs_per_batch
+        if max_pairs > 0 and curr_idx.numel() > max_pairs:
+            perm = torch.randperm(curr_idx.numel(), device=curr_idx.device)[:max_pairs]
+            curr_idx = curr_idx[perm]
+            prev_idx = prev_idx[perm]
+
+        curr_z = self.temporal_projector(curr_h[curr_idx])
+        prev_z = self.temporal_projector(prev_h[prev_idx].detach())
+
+        curr_z = F.normalize(curr_z, p=2, dim=-1)
+        prev_z = F.normalize(prev_z, p=2, dim=-1)
+
+        logits = torch.matmul(curr_z, prev_z.T) / self.temporal_contrastive_cfg.temperature
+        labels = torch.arange(logits.shape[0], device=logits.device)
+
+        loss_fwd = F.cross_entropy(logits, labels)
+        loss_bwd = F.cross_entropy(logits.T, labels)
+        return 0.5 * (loss_fwd + loss_bwd)
 
     def get_val_ap(self):
         """Get average validation score across all objectives.

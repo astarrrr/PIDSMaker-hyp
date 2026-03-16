@@ -874,6 +874,14 @@ TASK_ARGS = {
         "grad_accumulation": Arg(int, desc="Number of epochs to gather gradients before backprop."),
         "inference_device": Arg(str, vals=OR(["cpu", "cuda"]), desc="Device used during testing."),
         "used_method": Arg(str, vals=OR(["default"]), desc="Which training pipeline use."),
+        "temporal_contrastive": {
+            "enabled": Arg(bool),
+            "loss_weight": Arg(float),
+            "temperature": Arg(float),
+            "projection_dim": Arg(int),
+            "warmup_epochs": Arg(int),
+            "max_pairs_per_batch": Arg(int),
+        },
         "encoder": {
             "dropout": Arg(float),
             "used_methods": Arg(

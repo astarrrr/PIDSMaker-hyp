@@ -79,6 +79,8 @@ def main(cfg):
     global_best_val_score = float("-inf")
     use_few_shot = cfg.training.decoder.use_few_shot
     grad_acc = cfg.training.grad_accumulation
+    temporal_cfg = cfg.training.temporal_contrastive
+    use_temporal_contrastive = temporal_cfg.enabled
 
     if use_few_shot:
         num_epochs += 1  # in few-shot, the first epoch is without ssl training
@@ -96,7 +98,10 @@ def main(cfg):
 
             loss_acc = torch.zeros(1, device=device)
             tot_loss = 0
+            tot_temporal_loss = 0.0
+            num_temporal_steps = 0
             for dataset in train_data:
+                prev_temporal_state = None
                 for i, g in enumerate(log_tqdm(dataset, "Training")):
                     g.to(device=device)
                     g = remove_attacks_if_needed(g, cfg)
@@ -105,8 +110,19 @@ def main(cfg):
 
                     results = model(g)
                     loss = results["loss"]
+
+                    temporal_state = results.get("temporal_state")
+                    if use_temporal_contrastive and epoch >= temporal_cfg.warmup_epochs:
+                        temporal_loss = model.compute_temporal_contrastive_loss(
+                            temporal_state, prev_temporal_state
+                        )
+                        loss = loss + temporal_cfg.loss_weight * temporal_loss
+                        tot_temporal_loss += temporal_loss.item()
+                        num_temporal_steps += 1
+
                     loss_acc += loss
                     tot_loss += loss.item()
+                    prev_temporal_state = model.detach_temporal_state(temporal_state)
 
                     if (i + 1) % grad_acc == 0:
                         loss_acc.backward()
@@ -123,6 +139,9 @@ def main(cfg):
                     optimizer.step()
 
             tot_loss /= sum(len(dataset) for dataset in train_data)
+            mean_temporal_loss = (
+                tot_temporal_loss / num_temporal_steps if num_temporal_steps > 0 else 0.0
+            )
             epoch_times.append(timer() - start)
 
             _, peak_inference_cpu_memory = tracemalloc.get_traced_memory()
@@ -137,7 +156,7 @@ def main(cfg):
                 torch.cuda.reset_peak_memory_stats(device=device)
 
             log(
-                f"[@epoch{epoch:02d}] Training finished - GPU memory: {peak_train_gpu_mem:.2f} GB | CPU memory: {peak_train_cpu_mem:.2f} GB | Mean Loss: {tot_loss:.4f}",
+                f"[@epoch{epoch:02d}] Training finished - GPU memory: {peak_train_gpu_mem:.2f} GB | CPU memory: {peak_train_cpu_mem:.2f} GB | Mean Loss: {tot_loss:.4f} | Mean Temporal Loss: {mean_temporal_loss:.4f}",
                 return_line=True,
             )
 

@@ -55,6 +55,13 @@ feat_inference:
   to_remove: True
 
 training:
+  temporal_contrastive:
+    enabled: False
+    loss_weight: 0.1
+    temperature: 0.2
+    projection_dim: 64
+    warmup_epochs: 2
+    max_pairs_per_batch: 2048
   encoder:
     graph_attention:
       activation: relu
