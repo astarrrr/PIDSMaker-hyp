@@ -214,6 +214,80 @@ class Model(nn.Module):
             "node_embeddings": temporal_state["node_embeddings"].detach(),
         }
 
+    def _align_temporal_states(self, source_state, target_state):
+        if source_state is None or target_state is None:
+            return None
+
+        source_ids = source_state["node_ids"]
+        target_ids = target_state["node_ids"]
+        shared_mask = torch.isin(source_ids, target_ids)
+        if not torch.any(shared_mask):
+            return None
+
+        source_idx = torch.nonzero(shared_mask, as_tuple=False).squeeze(-1)
+        shared_ids = source_ids[source_idx]
+
+        target_sorted_ids, target_perm = torch.sort(target_ids)
+        target_idx = target_perm[torch.searchsorted(target_sorted_ids, shared_ids)]
+
+        max_pairs = self.temporal_contrastive_cfg.max_pairs_per_batch
+        if max_pairs > 0 and source_idx.numel() > max_pairs:
+            perm = torch.randperm(source_idx.numel(), device=source_idx.device)[:max_pairs]
+            source_idx = source_idx[perm]
+            target_idx = target_idx[perm]
+            shared_ids = shared_ids[perm]
+
+        return {
+            "shared_ids": shared_ids,
+            "source_h": source_state["node_embeddings"][source_idx],
+            "target_h": target_state["node_embeddings"][target_idx].detach(),
+        }
+
+    def _compute_pair_temporal_loss(self, pair_state, node_weights=None):
+        if pair_state is None:
+            return None
+
+        source_z = self.temporal_projector(pair_state["source_h"])
+        target_z = self.temporal_projector(pair_state["target_h"])
+
+        source_z = F.normalize(source_z, p=2, dim=-1)
+        target_z = F.normalize(target_z, p=2, dim=-1)
+
+        logits = torch.matmul(source_z, target_z.T) / self.temporal_contrastive_cfg.temperature
+        labels = torch.arange(logits.shape[0], device=logits.device)
+
+        loss_fwd = F.cross_entropy(logits, labels, reduction="none")
+        loss_bwd = F.cross_entropy(logits.T, labels, reduction="none")
+        loss = 0.5 * (loss_fwd + loss_bwd)
+
+        if node_weights is not None:
+            norm = node_weights.sum().clamp_min(1e-6)
+            return (loss * node_weights).sum() / norm
+        return loss.mean()
+
+    def _window_overlap_weight(self, left_state, right_state):
+        if left_state is None or right_state is None:
+            return 0.0
+
+        left_ids = left_state["node_ids"]
+        right_ids = right_state["node_ids"]
+        inter = torch.isin(left_ids, right_ids).sum().item()
+        union = torch.unique(torch.cat([left_ids, right_ids])).numel()
+        if union == 0:
+            return 0.0
+        return inter / union
+
+    def _node_stability_weights(self, pair_ids, states):
+        if pair_ids is None or pair_ids.numel() == 0:
+            return None
+
+        gamma = getattr(self.temporal_contrastive_cfg, "node_weight_floor", 0.5)
+        counts = torch.zeros_like(pair_ids, dtype=torch.float)
+        for state in states:
+            counts = counts + torch.isin(pair_ids, state["node_ids"]).to(torch.float)
+        base = counts / max(len(states), 1)
+        return gamma + (1.0 - gamma) * base
+
     def compute_temporal_contrastive_loss(self, current_state, previous_state):
         if (
             not self.temporal_contrastive_enabled
@@ -222,39 +296,54 @@ class Model(nn.Module):
         ):
             return torch.zeros(1, device=self.device).squeeze()
 
-        curr_ids = current_state["node_ids"]
-        prev_ids = previous_state["node_ids"]
-        curr_h = current_state["node_embeddings"]
-        prev_h = previous_state["node_embeddings"]
+        pair_state = self._align_temporal_states(current_state, previous_state)
+        if pair_state is None:
+            return current_state["node_embeddings"].new_zeros(())
+        return self._compute_pair_temporal_loss(pair_state)
 
-        shared_mask = torch.isin(curr_ids, prev_ids)
-        if not torch.any(shared_mask):
-            return curr_h.new_zeros(())
+    def compute_tri_temporal_contrastive_loss(
+        self, previous_previous_state, previous_state, current_state
+    ):
+        if (
+            not self.temporal_contrastive_enabled
+            or previous_previous_state is None
+            or previous_state is None
+            or current_state is None
+        ):
+            return torch.zeros(1, device=self.device).squeeze()
 
-        curr_idx = torch.nonzero(shared_mask, as_tuple=False).squeeze(-1)
-        shared_ids = curr_ids[curr_idx]
+        prev_pair = self._align_temporal_states(previous_state, previous_previous_state)
+        next_pair = self._align_temporal_states(previous_state, current_state)
+        if prev_pair is None and next_pair is None:
+            return previous_state["node_embeddings"].new_zeros(())
 
-        prev_sorted_ids, prev_perm = torch.sort(prev_ids)
-        prev_idx = prev_perm[torch.searchsorted(prev_sorted_ids, shared_ids)]
+        eps = getattr(self.temporal_contrastive_cfg, "window_weight_floor", 0.1)
+        pair_weights = []
+        pair_losses = []
 
-        max_pairs = self.temporal_contrastive_cfg.max_pairs_per_batch
-        if max_pairs > 0 and curr_idx.numel() > max_pairs:
-            perm = torch.randperm(curr_idx.numel(), device=curr_idx.device)[:max_pairs]
-            curr_idx = curr_idx[perm]
-            prev_idx = prev_idx[perm]
+        if prev_pair is not None:
+            prev_weight = max(
+                self._window_overlap_weight(previous_previous_state, previous_state), eps
+            )
+            prev_node_weights = self._node_stability_weights(
+                prev_pair["shared_ids"],
+                [previous_previous_state, previous_state, current_state],
+            )
+            pair_weights.append(prev_weight)
+            pair_losses.append(self._compute_pair_temporal_loss(prev_pair, prev_node_weights))
 
-        curr_z = self.temporal_projector(curr_h[curr_idx])
-        prev_z = self.temporal_projector(prev_h[prev_idx].detach())
+        if next_pair is not None:
+            next_weight = max(self._window_overlap_weight(previous_state, current_state), eps)
+            next_node_weights = self._node_stability_weights(
+                next_pair["shared_ids"],
+                [previous_previous_state, previous_state, current_state],
+            )
+            pair_weights.append(next_weight)
+            pair_losses.append(self._compute_pair_temporal_loss(next_pair, next_node_weights))
 
-        curr_z = F.normalize(curr_z, p=2, dim=-1)
-        prev_z = F.normalize(prev_z, p=2, dim=-1)
-
-        logits = torch.matmul(curr_z, prev_z.T) / self.temporal_contrastive_cfg.temperature
-        labels = torch.arange(logits.shape[0], device=logits.device)
-
-        loss_fwd = F.cross_entropy(logits, labels)
-        loss_bwd = F.cross_entropy(logits.T, labels)
-        return 0.5 * (loss_fwd + loss_bwd)
+        weight_tensor = previous_state["node_embeddings"].new_tensor(pair_weights)
+        weight_tensor = weight_tensor / weight_tensor.sum().clamp_min(1e-6)
+        return sum(weight * loss for weight, loss in zip(weight_tensor, pair_losses))
 
     def get_val_ap(self):
         """Get average validation score across all objectives.

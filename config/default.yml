@@ -62,6 +62,8 @@ training:
     projection_dim: 64
     warmup_epochs: 2
     max_pairs_per_batch: 2048
+    window_weight_floor: 0.1
+    node_weight_floor: 0.5
   encoder:
     graph_attention:
       activation: relu
@@ -88,6 +90,18 @@ training:
     gin:
       activation: relu
       num_layers: 2
+    hyperbolic_transformer:
+      trans_num_layers: 2
+      trans_num_heads: 4
+      trans_dropout: 0.3
+      gnn_num_layers: 0
+      gnn_dropout: 0.0
+      graph_weight: 0.0
+      k: 1.0
+      attention_type: full
+      power_k: 2
+      use_bn: True
+      use_residual: True
     magic_gat:
       num_layers: 3
       num_heads: 4

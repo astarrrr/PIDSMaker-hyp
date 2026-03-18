@@ -253,8 +253,23 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
                 dropout=dropout,
             )
         elif method == "hyperbolic_transformer":
-            _require_factory_ext("the hyperbolic_transformer encoder")
-            encoder = create_hyp_encoder(cfg, in_dim)
+            hyp_cfg = cfg.training.encoder.hyperbolic_transformer
+            if create_hyp_encoder is not None:
+                encoder = create_hyp_encoder(cfg, in_dim)
+            else:
+                encoder = HyperbolicTransformerEmbedding(
+                    in_dim=in_dim,
+                    hid_dim=node_hid_dim,
+                    out_dim=node_out_dim,
+                    edge_dim=edge_dim or None,
+                    dropout=hyp_cfg.trans_dropout,
+                    activation=activation_fn_factory("relu"),
+                    trans_num_heads=hyp_cfg.trans_num_heads,
+                    trans_num_layers=hyp_cfg.trans_num_layers,
+                    k=hyp_cfg.k,
+                    use_bn=hyp_cfg.use_bn,
+                    use_residual=hyp_cfg.use_residual,
+                )
         else:
             raise ValueError(f"Invalid encoder {method}")
 
@@ -401,10 +416,6 @@ def objective_factory(cfg, in_dim, graph_reindexer, device, objective_cfg=None):
     if objective_cfg is None:
         objective_cfg = cfg.training.decoder
     node_out_dim = cfg.training.node_out_dim
-
-    # Hyperbolic encoder outputs node_out_dim + 1 (Lorentz time component)
-    if "hyperbolic_transformer" in cfg.training.encoder.used_methods:
-        node_out_dim = node_out_dim + 1
 
     entity_map = get_node_map(from_zero=True)
     event_map = get_rel2id(cfg, from_zero=True)
@@ -712,8 +723,8 @@ def optimizer_factory(cfg, parameters):
         Optimizer instance (DualOptimizer or torch.optim.Adam)
     """
     if "hyperbolic_transformer" in cfg.training.encoder.used_methods:
-        _require_factory_ext("the hyperbolic_transformer optimizer")
-        return create_dual_optimizer(cfg, parameters)
+        if create_dual_optimizer is not None:
+            return create_dual_optimizer(cfg, parameters)
 
     lr = cfg.training.lr
     weight_decay = cfg.training.weight_decay

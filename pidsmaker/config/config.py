@@ -881,6 +881,8 @@ TASK_ARGS = {
             "projection_dim": Arg(int),
             "warmup_epochs": Arg(int),
             "max_pairs_per_batch": Arg(int),
+            "window_weight_floor": Arg(float),
+            "node_weight_floor": Arg(float),
         },
         "encoder": {
             "dropout": Arg(float),
