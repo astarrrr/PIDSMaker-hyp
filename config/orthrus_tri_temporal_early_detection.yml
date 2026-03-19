@@ -1,0 +1,12 @@
+_include_yml: orthrus_temporal_contrastive
+
+batching:
+  intra_graph_batching:
+    tgn_last_neighbor:
+      tgn_neighbor_size: 5
+
+evaluation:
+  used_method: early_tw_evaluation
+  best_model_selection: best_adp
+  early_tw_evaluation:
+    threshold_method: max_val_loss

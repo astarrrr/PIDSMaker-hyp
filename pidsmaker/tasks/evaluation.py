@@ -3,6 +3,7 @@ import os
 import wandb
 
 from pidsmaker.detection.evaluation_methods import (
+    early_tw_evaluation,
     edge_evaluation,
     node_evaluation,
     node_tw_evaluation,
@@ -117,6 +118,8 @@ def main(cfg):
         return standard_evaluation(cfg, evaluation_fn=node_evaluation.main)
     elif method == "tw_evaluation":
         return standard_evaluation(cfg, evaluation_fn=tw_evaluation.main)
+    elif method == "early_tw_evaluation":
+        return standard_evaluation(cfg, evaluation_fn=early_tw_evaluation.main)
     elif method == "node_tw_evaluation":
         return standard_evaluation(cfg, evaluation_fn=node_tw_evaluation.main)
     elif method == "queue_evaluation":

@@ -531,19 +531,6 @@ ENCODERS_CFG = {
         "architecture_str": Arg(str),
     },
     "none": {},
-    "hyperbolic_transformer": {
-        "trans_num_layers": Arg(int),
-        "trans_num_heads": Arg(int),
-        "trans_dropout": Arg(float),
-        "gnn_num_layers": Arg(int),
-        "gnn_dropout": Arg(float),
-        "graph_weight": Arg(float),
-        "k": Arg(float),
-        "attention_type": Arg(str),
-        "power_k": Arg(int),
-        "use_bn": Arg(bool),
-        "use_residual": Arg(bool),
-    },
 }
 
 DECODERS_NODE_LEVEL = ["node_mlp", "none", "magic_gat", "nodlink"]
@@ -588,7 +575,6 @@ OBJECTIVES_EDGE_LEVEL = [
     "predict_edge_type",
     "reconstruct_edge_embeddings",
     "predict_edge_contrastive",
-    "hyperbolic_edge_reconstruction",
 ]
 OBJECTIVES = OBJECTIVES_NODE_LEVEL + OBJECTIVES_EDGE_LEVEL
 OBJECTIVES_CFG = {
@@ -661,7 +647,6 @@ OBJECTIVES_CFG = {
         ),
         **DECODERS_CFG,
     },
-    "hyperbolic_edge_reconstruction": {},
 }
 
 SYNTHETIC_ATTACKS = {
@@ -951,6 +936,13 @@ TASK_ARGS = {
                 str,
                 vals=OR(THRESHOLD_METHODS),
                 desc="Time-window detection. The code is broken and needs work to be updated.",
+            ),
+        },
+        "early_tw_evaluation": {
+            "threshold_method": Arg(
+                str,
+                vals=OR(THRESHOLD_METHODS),
+                desc="Early detection evaluation based on attack onset delay across malicious windows.",
             ),
         },
         "node_tw_evaluation": {

@@ -90,18 +90,6 @@ training:
     gin:
       activation: relu
       num_layers: 2
-    hyperbolic_transformer:
-      trans_num_layers: 2
-      trans_num_heads: 4
-      trans_dropout: 0.3
-      gnn_num_layers: 0
-      gnn_dropout: 0.0
-      graph_weight: 0.0
-      k: 1.0
-      attention_type: full
-      power_k: 2
-      use_bn: True
-      use_residual: True
     magic_gat:
       num_layers: 3
       num_heads: 4
@@ -170,6 +158,8 @@ evaluation:
     use_dst_node_loss: True
     use_kmeans: True
     kmeans_top_K: 30
+  early_tw_evaluation:
+    threshold_method: max_val_loss
   node_tw_evaluation:
     threshold_method: max_val_loss
     use_dst_node_loss: True

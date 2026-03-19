@@ -5,7 +5,6 @@ from .gin import GIN
 from .glstm import GLSTM
 from .graph_attention import GraphAttentionEmbedding
 from .gru import GRU
-from .hyperbolic_transformer import HyperbolicTransformerEmbedding
 from .linear_encoder import LinearEncoder
 from .magic_encoder import MagicGAT
 from .rcaid_encoder import RCaidGAT

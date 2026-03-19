@@ -8,14 +8,6 @@ Supports multiple encoder architectures (SAGE, GAT, GIN, GLSTM, etc.) and object
 import torch
 import torch.nn as nn
 
-try:
-    # Optional Hyperbolic Transformer integration.
-    from factory_ext import create_dual_optimizer, create_hyp_encoder, create_hyp_objective
-except ModuleNotFoundError:
-    create_hyp_encoder = None
-    create_hyp_objective = None
-    create_dual_optimizer = None
-
 from pidsmaker.config import decoder_matches_objective
 from pidsmaker.decoders import *
 from pidsmaker.encoders import *
@@ -25,23 +17,7 @@ from pidsmaker.model import Model
 from pidsmaker.objectives import *
 from pidsmaker.tgn import IdentityMessage, LastAggregator, TGNMemory, TimeEncodingMemory
 from pidsmaker.utils.data_utils import GraphReindexer
-from pidsmaker.utils.dataset_utils import (
-    get_node_map,
-    get_num_edge_type,
-    get_rel2id,
-)
-
-
-def _require_factory_ext(feature_name):
-    """Fail only when hyperbolic components are actually requested."""
-    if (
-        create_hyp_encoder is None
-        or create_hyp_objective is None
-        or create_dual_optimizer is None
-    ):
-        raise ModuleNotFoundError(
-            f"factory_ext is required for {feature_name} but is not installed or on PYTHONPATH."
-        )
+from pidsmaker.utils.dataset_utils import get_node_map, get_num_edge_type, get_rel2id
 
 
 def build_model(data_sample, device, cfg, max_node_num):
@@ -252,24 +228,6 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
                 architecture=cfg.training.encoder.custom_mlp.architecture_str,
                 dropout=dropout,
             )
-        elif method == "hyperbolic_transformer":
-            hyp_cfg = cfg.training.encoder.hyperbolic_transformer
-            if create_hyp_encoder is not None:
-                encoder = create_hyp_encoder(cfg, in_dim)
-            else:
-                encoder = HyperbolicTransformerEmbedding(
-                    in_dim=in_dim,
-                    hid_dim=node_hid_dim,
-                    out_dim=node_out_dim,
-                    edge_dim=edge_dim or None,
-                    dropout=hyp_cfg.trans_dropout,
-                    activation=activation_fn_factory("relu"),
-                    trans_num_heads=hyp_cfg.trans_num_heads,
-                    trans_num_layers=hyp_cfg.trans_num_layers,
-                    k=hyp_cfg.k,
-                    use_bn=hyp_cfg.use_bn,
-                    use_residual=hyp_cfg.use_residual,
-                )
         else:
             raise ValueError(f"Invalid encoder {method}")
 
@@ -422,12 +380,6 @@ def objective_factory(cfg, in_dim, graph_reindexer, device, objective_cfg=None):
 
     objectives = []
     for objective in map(lambda x: x.strip(), objective_cfg.used_methods.split(",")):
-        # Hyperbolic edge reconstruction: bypass standard decoder/objective matching
-        if objective == "hyperbolic_edge_reconstruction":
-            _require_factory_ext("the hyperbolic_edge_reconstruction objective")
-            objectives.append(create_hyp_objective(cfg, node_out_dim))
-            continue
-
         method = getattr(getattr(objective_cfg, objective.strip()), "decoder")
 
         if not decoder_matches_objective(decoder=method, objective=objective):
@@ -713,19 +665,15 @@ def activation_fn_factory(activation: str):
 
 
 def optimizer_factory(cfg, parameters):
-    """Create optimizer. Uses DualOptimizer for hyperbolic models, Adam otherwise.
+    """Create Adam optimizer for the main training loop.
 
     Args:
         cfg: Configuration with training.lr and training.weight_decay
         parameters: Model parameters to optimize
 
     Returns:
-        Optimizer instance (DualOptimizer or torch.optim.Adam)
+        torch.optim.Adam: Configured optimizer
     """
-    if "hyperbolic_transformer" in cfg.training.encoder.used_methods:
-        if create_dual_optimizer is not None:
-            return create_dual_optimizer(cfg, parameters)
-
     lr = cfg.training.lr
     weight_decay = cfg.training.weight_decay
 
