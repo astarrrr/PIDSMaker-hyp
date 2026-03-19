@@ -85,7 +85,10 @@ def standard_evaluation(cfg, evaluation_fn):
     if save_files_to_wandb:
         # We only store the scores for the best run
         # wandb.save(best_metrics["stats"]["scores_file"], out_dir)
-        wandb.save(best_metrics["stats"]["neat_scores_img_file"], out_dir)
+        best_stats = best_metrics.get("stats") or {}
+        neat_scores_img_file = best_stats.get("neat_scores_img_file")
+        if neat_scores_img_file and os.path.exists(neat_scores_img_file):
+            wandb.save(neat_scores_img_file, out_dir)
 
     return best_metrics["stats"]
 
