@@ -3,7 +3,7 @@ _include_yml: orthrus_temporal_contrastive
 batching:
   intra_graph_batching:
     tgn_last_neighbor:
-      tgn_neighbor_size: 20
+      tgn_neighbor_size: 15
 
 evaluation:
   used_method: node_evaluation
