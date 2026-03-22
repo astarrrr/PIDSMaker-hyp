@@ -1,0 +1,11 @@
+_include_yml: orthrus_temporal_contrastive
+
+training:
+  encoder:
+    used_methods: tgn,hyperbolic_transformer
+    hyperbolic_transformer:
+      activation: relu
+      num_heads: 4
+      num_layers: 2
+      curvature: 1.0
+      project_back_to_euclidean: True

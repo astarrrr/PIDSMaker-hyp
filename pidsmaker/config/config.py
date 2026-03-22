@@ -502,6 +502,13 @@ ENCODERS_CFG = {
         "flow": Arg(str),
         "num_layers": Arg(int),
     },
+    "hyperbolic_transformer": {
+        "activation": Arg(str),
+        "num_heads": Arg(int),
+        "num_layers": Arg(int),
+        "curvature": Arg(float),
+        "project_back_to_euclidean": Arg(bool),
+    },
     "sage": {
         "activation": Arg(str),
         "num_layers": Arg(int),

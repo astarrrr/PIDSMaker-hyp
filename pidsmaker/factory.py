@@ -138,6 +138,21 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
                 flow=cfg.training.encoder.graph_attention.flow,
                 num_layers=cfg.training.encoder.graph_attention.num_layers,
             )
+        elif method == "hyperbolic_transformer":
+            encoder = HyperbolicTemporalTransformer(
+                in_dim=in_dim,
+                hid_dim=node_hid_dim,
+                out_dim=node_out_dim,
+                edge_dim=edge_dim or None,
+                dropout=dropout,
+                activation=activation_fn_factory(
+                    cfg.training.encoder.hyperbolic_transformer.activation
+                ),
+                num_heads=cfg.training.encoder.hyperbolic_transformer.num_heads,
+                num_layers=cfg.training.encoder.hyperbolic_transformer.num_layers,
+                curvature=cfg.training.encoder.hyperbolic_transformer.curvature,
+                project_back_to_euclidean=cfg.training.encoder.hyperbolic_transformer.project_back_to_euclidean,
+            )
         elif method == "sage":
             encoder = SAGE(
                 in_dim=in_dim,
