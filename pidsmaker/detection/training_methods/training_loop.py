@@ -29,6 +29,26 @@ from pidsmaker.utils.utils import get_device, log, log_start, log_tqdm, set_seed
 from . import inference_loop
 
 
+def compute_temporal_loss_for_batch(model, temporal_cfg, temporal_state_queue, temporal_state, device):
+    if temporal_state is None:
+        return torch.zeros(1, device=device).squeeze()
+
+    if temporal_cfg.mode == "tri" and len(temporal_state_queue) == 2:
+        return model.compute_tri_temporal_contrastive_loss(
+            temporal_state_queue[0],
+            temporal_state_queue[1],
+            temporal_state,
+        )
+
+    if len(temporal_state_queue) >= 1:
+        return model.compute_temporal_contrastive_loss(
+            temporal_state,
+            temporal_state_queue[-1],
+        )
+
+    return torch.zeros(1, device=device).squeeze()
+
+
 def main(cfg):
     """Main training loop executing self-supervised pretraining and optional few-shot fine-tuning.
 
@@ -114,18 +134,13 @@ def main(cfg):
 
                     temporal_state = results.get("temporal_state")
                     if use_temporal_contrastive and epoch >= temporal_cfg.warmup_epochs:
-                        if len(temporal_state_queue) == 2:
-                            temporal_loss = model.compute_tri_temporal_contrastive_loss(
-                                temporal_state_queue[0],
-                                temporal_state_queue[1],
-                                temporal_state,
-                            )
-                        elif len(temporal_state_queue) == 1:
-                            temporal_loss = model.compute_temporal_contrastive_loss(
-                                temporal_state, temporal_state_queue[0]
-                            )
-                        else:
-                            temporal_loss = torch.zeros(1, device=device).squeeze()
+                        temporal_loss = compute_temporal_loss_for_batch(
+                            model,
+                            temporal_cfg,
+                            temporal_state_queue,
+                            temporal_state,
+                            device,
+                        )
                         loss = loss + temporal_cfg.loss_weight * temporal_loss
                         tot_temporal_loss += temporal_loss.item()
                         num_temporal_steps += 1

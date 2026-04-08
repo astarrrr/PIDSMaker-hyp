@@ -2,7 +2,7 @@ _include_yml: orthrus_temporal_contrastive
 
 training:
   temporal_contrastive:
-    mode: tri
+    mode: bi
 
 batching:
   intra_graph_batching:

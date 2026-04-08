@@ -2,6 +2,7 @@ _include_yml: orthrus_non_snooped
 training:
   temporal_contrastive:
     enabled: True
+    mode: tri
     loss_weight: 0.1
     temperature: 0.2
     projection_dim: 64

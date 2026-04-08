@@ -57,6 +57,7 @@ feat_inference:
 training:
   temporal_contrastive:
     enabled: False
+    mode: tri
     loss_weight: 0.1
     temperature: 0.2
     projection_dim: 64

@@ -861,6 +861,7 @@ TASK_ARGS = {
         "used_method": Arg(str, vals=OR(["default"]), desc="Which training pipeline use."),
         "temporal_contrastive": {
             "enabled": Arg(bool),
+            "mode": Arg(str, vals=OR(["bi", "tri"])),
             "loss_weight": Arg(float),
             "temperature": Arg(float),
             "projection_dim": Arg(int),
