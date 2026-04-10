@@ -1059,6 +1059,41 @@ def get_ground_truth_uuid_to_node_id(cfg):
     return uuid_to_node_id
 
 
+def normalize_tw_malicious_nodes(tw_to_malicious_nodes, uuid_to_node_id):
+    normalized = {}
+    unresolved_node_ids = set()
+
+    for tw, nodes in tw_to_malicious_nodes.items():
+        unique_nodes, counts = np.unique(nodes, return_counts=True)
+        node_to_count = {str(node): int(count) for node, count in zip(unique_nodes, counts)}
+        log(f"TW {tw} -> {len(unique_nodes)} malicious nodes + {len(nodes)} malicious edges")
+
+        normalized_counts = {}
+        for node_id, count in node_to_count.items():
+            if node_id in uuid_to_node_id:
+                normalized_node_id = uuid_to_node_id[node_id]
+            elif node_id.isdigit():
+                normalized_node_id = node_id
+            else:
+                unresolved_node_ids.add(node_id)
+                continue
+
+            normalized_counts[normalized_node_id] = (
+                normalized_counts.get(normalized_node_id, 0) + count
+            )
+
+        normalized[tw] = normalized_counts
+
+    if unresolved_node_ids:
+        sample_missing = ", ".join(sorted(unresolved_node_ids)[:5])
+        log(
+            "WARNING: Skipping malicious ground-truth nodes that could not be mapped to internal "
+            f"node IDs ({len(unresolved_node_ids)} total). Sample: {sample_missing}"
+        )
+
+    return normalized
+
+
 def compute_tw_labels(cfg):
     """
     Gets the malcious node IDs present in each time window.
@@ -1092,24 +1127,11 @@ def compute_tw_labels(cfg):
                 num_found_event_labels += 1
 
     log(f"Found {num_found_event_labels}/{len(t_to_node)} edge labels.")
+    tw_to_malicious_nodes = normalize_tw_malicious_nodes(
+        tw_to_malicious_nodes,
+        uuid_to_node_id,
+    )
     torch.save(tw_to_malicious_nodes, out_file)
-
-    # Used to retrieve node ID from node raw UUID
-    # node_labels_path = os.path.join(cfg._ground_truth_dir, cfg.dataset.ground_truth_events_relative_path)
-
-    # uuid_to_node_id = get_ground_truth_uuid_to_node_id(cfg)
-
-    # Create a mapping TW number => malicious node IDs
-    for tw, nodes in tw_to_malicious_nodes.items():
-        unique_nodes, counts = np.unique(nodes, return_counts=True)
-        node_to_count = {node: count for node, count in zip(unique_nodes, counts)}
-        log(f"TW {tw} -> {len(unique_nodes)} malicious nodes + {len(nodes)} malicious edges")
-
-        node_to_count = {
-            uuid_to_node_id[node_id]: count for node_id, count in node_to_count.items()
-        }
-        # pprint(node_to_count, width=1)
-        tw_to_malicious_nodes[tw] = node_to_count
 
     return tw_to_malicious_nodes
 

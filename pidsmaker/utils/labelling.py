@@ -111,7 +111,7 @@ def get_events(
 
 def get_t2malicious_node(cfg) -> dict[list]:
     cur, connect = init_database_connection(cfg)
-    uuid2nids, nid2uuid = get_uuid2nids(cur)
+    uuid2nids, _ = get_uuid2nids(cur)
 
     t_to_node = defaultdict(list)
 
@@ -149,9 +149,9 @@ def get_t2malicious_node(cfg) -> dict[list]:
             dst_id = row[4]
             t = row[6]
             if src_id in ground_truth_nids:
-                t_to_node[int(t)].append(nid2uuid[int(src_id)])
+                t_to_node[int(t)].append(str(src_id))
             if dst_id in ground_truth_nids:
-                t_to_node[int(t)].append(nid2uuid[int(dst_id)])
+                t_to_node[int(t)].append(str(dst_id))
 
     return t_to_node
 
